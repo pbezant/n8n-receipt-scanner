@@ -1,0 +1,467 @@
+{
+  "name": "Receipt scanning & analysis workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/1JRaa4e33gdODnX3qK0B6Cs_3_e4UG5NTLPoeWpctVGU/values/Sheet1!1:1",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {}
+      },
+      "id": "b4ce5d2b-02e5-49ba-a0e7-c6b560454f3f",
+      "name": "Read Header Row",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        6704,
+        1952
+      ],
+      "typeVersion": 4.2,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "JQNjsgYJuio2qaG6",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get existing sheet headers from Sheets API GET response\nconst headerResponse = $input.item.json;\nconst existingHeaders = (headerResponse.values && headerResponse.values[0])\n  ? headerResponse.values[0].filter(h => h != null && h.toString().trim() !== '')\n  : [];\n\n// Get the flattened receipt data from Format Receipt Data\nconst receiptData = $('Format Receipt Data1').item.json;\nconst receiptKeys = Object.keys(receiptData);\n\n// Find any fields that don't yet have a column in the sheet\nconst newKeys = receiptKeys.filter(k => !existingHeaders.includes(k));\nconst allHeaders = [...existingHeaders, ...newKeys];\n\nif (newKeys.length > 0) {\n  console.log('Adding new columns: ' + newKeys.join(', '));\n}\n\n// Pass receipt data through + _headers so Write Headers node can update row 1.\n// _headers won't write to the sheet since no column by that name exists there.\nreturn [{\n  json: {\n    ...receiptData,\n    _headers: JSON.stringify(allHeaders)\n  }\n}];"
+      },
+      "id": "d0cae3cf-8708-4a96-a8bf-45f6ac04f2fc",
+      "name": "Sync Columns",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        6944,
+        1952
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/1JRaa4e33gdODnX3qK0B6Cs_3_e4UG5NTLPoeWpctVGU/values/Sheet1!1:1?valueInputOption=USER_ENTERED",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\"values\": [JSON.parse($json._headers)]} }}",
+        "options": {}
+      },
+      "id": "048c9bf9-56ea-4038-85e8-6d03e27fc78c",
+      "name": "Write Headers",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        7152,
+        1952
+      ],
+      "typeVersion": 4.2,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "JQNjsgYJuio2qaG6",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Write Headers outputs the Sheets API response, not the receipt data.\n// Pull the receipt data back from Sync Columns and strip the internal _headers field.\nconst syncData = $('Sync Columns').item.json;\nconst { _headers, ...receiptData } = syncData;\nreturn [{ json: receiptData }];"
+      },
+      "id": "d4d1d7bc-4778-479b-8e50-a8f0f5556c57",
+      "name": "Prepare Row Data",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        7344,
+        1952
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "triggerOn": "specificFolder",
+        "folderToWatch": {
+          "__rl": true,
+          "value": "1DyQghC5mT-CkRnXYTVixTUMuM_GFWzuU",
+          "mode": "list",
+          "cachedResultName": "Receipts",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1DyQghC5mT-CkRnXYTVixTUMuM_GFWzuU"
+        },
+        "event": "fileCreated",
+        "options": {}
+      },
+      "id": "24f9975a-c0db-4f84-96b7-97b781b19ad1",
+      "name": "Google Drive Trigger1",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "position": [
+        6400,
+        1536
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "JQNjsgYJuio2qaG6",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "b2457ceb-4150-409d-84e6-cb8f87335fe4",
+      "name": "Extract text1",
+      "type": "n8n-nodes-base.mistralAi",
+      "position": [
+        6816,
+        1536
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "mistralCloudApi": {
+          "id": "t9zYysjuQXo2cELo",
+          "name": "Mistral Cloud account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an expert at extracting structured data from receipts and invoices.\n\nReceipt content:\n{{ $json.pages[0].markdown }}\n\nExtract EVERY piece of information from this receipt and return it as a single flat or nested JSON object. Always include these base fields if present:\n- vendor (string): store, restaurant, or company name\n- date (string): purchase date in YYYY-MM-DD format\n- total (number): final total paid\n- subtotal (number): amount before tax\n- tax (number): tax amount\n- tip (number): tip amount\n- payment_method (string)\n- category (string): Food, Gas, Groceries, Office Supplies, Travel, Utilities, Medical, Entertainment, etc.\n- receipt_number (string)\n- address (string)\n- phone (string)\n\nADDITIONALLY, extract ALL type-specific fields you find. Examples:\n\nFor GAS receipts also include:\n- price_per_gallon (number)\n- gallons (number)\n- fuel_grade (string: Regular/Plus/Premium/Diesel)\n- odometer (number, if shown)\n- pump_number (string, if shown)\n\nFor RESTAURANT/FOOD receipts also include:\n- line_items: array of objects with name, qty, unit_price, total_price for each item\n- server (string, if shown)\n- table_number (string, if shown)\n\nFor GROCERY receipts also include:\n- line_items: array of objects with name, qty, unit_price, total_price for each item\n- savings (number, total discounts/coupons if shown)\n\nFor HOTEL receipts also include:\n- check_in (string, YYYY-MM-DD)\n- check_out (string, YYYY-MM-DD)\n- nights (number)\n- room_rate (number per night)\n- room_number (string)\n\nFor SERVICES/INVOICES also include:\n- invoice_number (string)\n- due_date (string, YYYY-MM-DD)\n- billed_to (string)\n- line_items: array of objects with description, qty, unit_price, total_price\n\nFor any other fields visible on the receipt that don't fit the above, include them with a sensible snake_case key name.\n\nRules:\n- Omit any field that is not present on the receipt — never include null or empty values\n- Return ONLY a raw JSON object, no markdown, no explanation, no code blocks\n- Numbers should be actual numbers, not strings",
+        "options": {}
+      },
+      "id": "1f4c134a-60ac-43b1-a2e2-762314cce1b2",
+      "name": "AI Agent1",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        7024,
+        1536
+      ],
+      "typeVersion": 2.2
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-flash-lite-latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        7024,
+        1776
+      ],
+      "id": "d0b5dece-c80e-4567-8987-96ca0b0aa775",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "T6vrBWXANAVPKppK",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI response JSON\nlet raw = $json.output ?? '';\nif (typeof raw !== 'string') raw = JSON.stringify(raw);\nraw = raw.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```\\s*$/, '').trim();\nconst jsonMatch = raw.match(/\\{[\\s\\S]*\\}/);\nif (!jsonMatch) throw new Error('No JSON found in AI response: ' + raw.substring(0, 200));\nconst data = JSON.parse(jsonMatch[0]);\n\n// Format a single line item as a readable summary string\nfunction formatLineItem(item) {\n  const name = item.name || item.description || item.item || item.service || item.product || 'Item';\n  const qtyKey = Object.keys(item).find(k => /qty|quantity|count|gallons|gal|units|hrs|hours/.test(k.toLowerCase()));\n  const priceKey = Object.keys(item).find(k => /unit_?price|price_?per|rate|each|per_?gal|cost/.test(k.toLowerCase()));\n  const totalKey = Object.keys(item).find(k => /^total$|line_?total|item_?total|amount|extended/.test(k.toLowerCase()));\n  const parts = [name];\n  if (qtyKey && item[qtyKey] != null) parts.push(`x${item[qtyKey]}`);\n  if (priceKey && item[priceKey] != null) parts.push(`@ $${item[priceKey]}`);\n  if (totalKey && item[totalKey] != null) parts.push(`= $${item[totalKey]}`);\n  return parts.join(' ');\n}\n\n// Flatten — arrays of objects become a readable pipe-delimited summary string\nfunction flatten(obj, prefix = '') {\n  const result = {};\n  for (const [key, val] of Object.entries(obj)) {\n    if (val === null || val === undefined || val === '') continue;\n    const fullKey = prefix ? `${prefix}_${key}` : key;\n    if (Array.isArray(val)) {\n      if (val.length === 0) continue;\n      if (typeof val[0] === 'object' && val[0] !== null) {\n        result[fullKey] = val.map(formatLineItem).join(' | ');\n      } else {\n        result[fullKey] = val.join(' | ');\n      }\n    } else if (typeof val === 'object') {\n      Object.assign(result, flatten(val, fullKey));\n    } else {\n      result[fullKey] = val;\n    }\n  }\n  return result;\n}\n\n// Always output exactly one row per receipt\nreturn [{ json: flatten(data) }];"
+      },
+      "id": "e1dff71d-0b9b-440c-8b9e-6196d6dd4804",
+      "name": "Format Receipt Data1",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        6448,
+        1952
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1JRaa4e33gdODnX3qK0B6Cs_3_e4UG5NTLPoeWpctVGU",
+          "mode": "list",
+          "cachedResultName": "Receipts",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1JRaa4e33gdODnX3qK0B6Cs_3_e4UG5NTLPoeWpctVGU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1JRaa4e33gdODnX3qK0B6Cs_3_e4UG5NTLPoeWpctVGU/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total",
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tax",
+              "displayName": "tax",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pump_number",
+              "displayName": "pump_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "price_per_gallon",
+              "displayName": "price_per_gallon",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "gallons",
+              "displayName": "gallons",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "fuel_grade",
+              "displayName": "fuel_grade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subtotal",
+              "displayName": "subtotal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "line_items",
+              "displayName": "line_items",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        7552,
+        1952
+      ],
+      "id": "87396086-9b3f-48b6-b9f4-480427935903",
+      "name": "Append row in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ng8zlg2pDNctkqmp",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        6608,
+        1536
+      ],
+      "id": "693c9173-36b7-47a8-8540-45c11f90e40a",
+      "name": "Download file1",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "JQNjsgYJuio2qaG6",
+          "name": "Google Drive account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Read Header Row": {
+      "main": [
+        [
+          {
+            "node": "Sync Columns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync Columns": {
+      "main": [
+        [
+          {
+            "node": "Write Headers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Headers": {
+      "main": [
+        [
+          {
+            "node": "Prepare Row Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Row Data": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive Trigger1": {
+      "main": [
+        [
+          {
+            "node": "Download file1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract text1": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Format Receipt Data1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Receipt Data1": {
+      "main": [
+        [
+          {
+            "node": "Read Header Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file1": {
+      "main": [
+        [
+          {
+            "node": "Extract text1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "52b71c6f-bec9-45b7-b929-cb110e1b3fa1",
+  "meta": {
+    "templateId": "7990",
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a0055f19b098f7ea90ca5a841c8e4940b4823322cb1ae62b41700bebe16239d2"
+  },
+  "id": "fWsOFMpH_zCUd42cJPbmu",
+  "tags": []
+}
