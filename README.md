@@ -4,7 +4,7 @@ An n8n workflow that automatically scans receipts uploaded to Google Drive, extr
 
 ## ✨ Features
 
-- **Fully automatic** — drop a receipt image into a Google Drive folder and it processes within a minute
+- **Two intake paths** — drop a receipt into Google Drive, or forward/receive a receipt email and it processes automatically
 - **AI-powered extraction** — Mistral AI reads the receipt text; Gemini analyzes and structures it
 - **Receipt-type aware** — gas receipts get `price_per_gallon` + `gallons`, restaurant receipts get `line_items`, hotel receipts get `check_in` / `check_out` / `room_rate`, etc.
 - **Dynamic columns** — Google Sheet headers are auto-managed; new fields are appended as new columns, existing fields map to their existing column
@@ -13,8 +13,18 @@ An n8n workflow that automatically scans receipts uploaded to Google Drive, extr
 ## 📋 Workflow Overview
 
 ```
-Google Drive Trigger
+Path 1 — Google Drive:
+  Google Drive Trigger (new file in Receipts folder)
   → Download File (Google Drive)
+  → [shared processing pipeline below]
+
+Path 2 — Gmail:
+  Gmail Trigger (matching email with attachment)
+  → Move to Receipts Label (Gmail — add label, archive from inbox)
+  → Upload Attachment to Drive (Google Drive — drop in Receipts folder)
+  → [Drive Trigger fires automatically, picks up from Path 1]
+
+Shared processing pipeline:
   → Extract Text (Mistral AI — OCR)
   → AI Agent (Gemini — structured extraction)
   → Format Receipt Data (Code — flatten to key/value)
@@ -30,9 +40,10 @@ Google Drive Trigger
 ## 🛠️ Prerequisites
 
 - A running **n8n** instance (self-hosted or n8n Cloud)
-- A **Google Cloud project** with Drive API and Sheets API enabled
+- A **Google Cloud project** with Drive API, Sheets API, and Gmail API enabled
 - A **Mistral AI** account (free tier works) — [console.mistral.ai](https://console.mistral.ai)
 - A **Google AI Studio** API key for Gemini — [aistudio.google.com](https://aistudio.google.com)
+- A **Gmail** account for the email trigger (can be the same Google account)
 
 ---
 
@@ -49,7 +60,7 @@ Google Drive Trigger
 
 ### Step 2 — Create Credentials in n8n
 
-You need **four** credentials configured in n8n before importing the workflow.
+You need **five** credentials configured in n8n before importing the workflow.
 
 #### 2a. Google Drive OAuth2 API *(used by 4 nodes)*
 
@@ -80,7 +91,16 @@ You need **four** credentials configured in n8n before importing the workflow.
    - Paste your API key
    - Name it: `Your Mistral Cloud Account`
 
-#### 2d. Google Sheets Service Account *(used by Append to Sheet)*
+#### 2d. Gmail OAuth2 *(used by Gmail Trigger and Move to Receipts Label)*
+
+1. In your Google Cloud project, make sure the **Gmail API** is enabled
+2. In **APIs & Services → Credentials**, add your n8n redirect URI to your existing OAuth 2.0 client (or create a new one)
+3. In n8n: **Credentials → New → Gmail OAuth2 API**
+   - Paste Client ID and Client Secret
+   - Click **Connect my account** and sign in
+   - Name it: `Gmail account`
+
+#### 2e. Google Sheets Service Account *(used by Append to Sheet)*
 
 > A Service Account bypasses OAuth2 redirect requirements for writing to Sheets.
 
@@ -118,6 +138,22 @@ You need **four** credentials configured in n8n before importing the workflow.
 ### Step 5 — Configure the Workflow
 
 Open each of these nodes and update them:
+
+#### Gmail Trigger
+- Select your **Gmail account** credential
+- Under **Filters**, add a **Sender** address or **Subject** keyword to match receipt emails (e.g. subject contains `receipt` or `invoice`)
+- Leave **Read Status** as `Unread` to avoid reprocessing old emails
+
+#### Move to Receipts Label
+- Select your **Gmail account** credential
+- Set the **Label IDs** field to your Gmail "Receipts" label:
+  1. In Gmail, create a label named **Receipts** (Settings → Labels → Create)
+  2. Find the label ID: open Gmail in a browser, click the label, and copy the ID from the URL (e.g. `Label_1234567890`)
+  3. Paste that ID into the **Label IDs** field in this node
+
+#### Upload Attachment to Drive
+- Select your **Google Drive OAuth2** credential
+- The **Folder** is pre-set to your Receipts folder — update it if your folder ID differs
 
 #### Google Drive Trigger
 - Click the **Folder to Watch** field → select your Receipts folder (or paste the folder ID)

@@ -336,6 +336,79 @@
           "name": "Google Drive account"
         }
       }
+    },
+    {
+      "parameters": {
+        "filters": {
+          "readStatus": "unread"
+        },
+        "downloadAttachments": true,
+        "dataPropertyAttachmentsPrefixName": "attachment_",
+        "options": {}
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "position": [
+        6160,
+        1120
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": ""
+      },
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "name": "Move to Receipts Label",
+      "type": "n8n-nodes-base.gmail",
+      "position": [
+        6400,
+        1120
+      ],
+      "typeVersion": 2,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "name": "={{ $binary.attachment_0.fileName }}",
+        "inputDataFieldName": "attachment_0",
+        "folderId": {
+          "__rl": true,
+          "value": "1DyQghC5mT-CkRnXYTVixTUMuM_GFWzuU",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+      "name": "Upload Attachment to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [
+        6640,
+        1120
+      ],
+      "typeVersion": 3,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "JQNjsgYJuio2qaG6",
+          "name": "Google Drive account"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -444,6 +517,28 @@
         [
           {
             "node": "Extract text1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Move to Receipts Label",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move to Receipts Label": {
+      "main": [
+        [
+          {
+            "node": "Upload Attachment to Drive",
             "type": "main",
             "index": 0
           }

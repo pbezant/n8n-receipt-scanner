@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5678/healthz)",
+      "Bash(curl -s http://localhost:5678/api/v1/workflows/fWsOFMpH_zCUd42cJPbmu -H \"Accept: application/json\")",
+      "Read(//Users/prestonbezant/**)",
+      "Read(//Users/prestonbezant/.n8n/**)",
+      "Bash(curl -s -X PUT \"http://localhost:5678/api/v1/workflows/fWsOFMpH_zCUd42cJPbmu\" -H \"X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NzY1YWIxZi1kM2QwLTQwN2QtOTVhZS1iODk5NWM1OWVlZmIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzczMzYwNTY3LCJleHAiOjE3NzU4ODAwMDB9.0lCUqEzsu_XxKnqEPP6Od8OeEFM2OtucKOMBONAGwIU\" -H \"Content-Type: application/json\" -d @\"/Users/prestonbezant/_Developement/n8n-receipt-scanner/Receipt scanning & analysis workflow.json\")",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s -X PUT \"http://localhost:5678/api/v1/workflows/fWsOFMpH_zCUd42cJPbmu\" -H \"X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NzY1YWIxZi1kM2QwLTQwN2QtOTVhZS1iODk5NWM1OWVlZmIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzczMzYwNTY3LCJleHAiOjE3NzU4ODAwMDB9.0lCUqEzsu_XxKnqEPP6Od8OeEFM2OtucKOMBONAGwIU\" -H \"Content-Type: application/json\" -d @-)",
+      "Bash(curl -s \"http://localhost:5678/api/v1/workflows/PLqBX5oN0wviwsyU\" -H \"X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NzY1YWIxZi1kM2QwLTQwN2QtOTVhZS1iODk5NWM1OWVlZmIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzczMzYwNTY3LCJleHAiOjE3NzU4ODAwMDB9.0lCUqEzsu_XxKnqEPP6Od8OeEFM2OtucKOMBONAGwIU\")",
+      "Bash(curl -s -X PUT \"http://localhost:5678/api/v1/workflows/PLqBX5oN0wviwsyU\" -H \"X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NzY1YWIxZi1kM2QwLTQwN2QtOTVhZS1iODk5NWM1OWVlZmIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzczMzYwNTY3LCJleHAiOjE3NzU4ODAwMDB9.0lCUqEzsu_XxKnqEPP6Od8OeEFM2OtucKOMBONAGwIU\" -H \"Content-Type: application/json\" -d @-)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(''''Updated:'''', d.get\\(''''name''''\\)\\); print\\(''''Error:'''', d.get\\(''''message'''',''''none''''\\)\\)\")",
+      "Bash(curl -s \"http://localhost:5678/api/v1/executions?workflowId=PLqBX5oN0wviwsyU&limit=1\" -H \"X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NzY1YWIxZi1kM2QwLTQwN2QtOTVhZS1iODk5NWM1OWVlZmIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzczMzYwNTY3LCJleHAiOjE3NzU4ODAwMDB9.0lCUqEzsu_XxKnqEPP6Od8OeEFM2OtucKOMBONAGwIU\")",
+      "Bash(curl -s \"http://localhost:5678/api/v1/executions/5513?includeData=true\" -H \"X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NzY1YWIxZi1kM2QwLTQwN2QtOTVhZS1iODk5NWM1OWVlZmIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzczMzYwNTY3LCJleHAiOjE3NzU4ODAwMDB9.0lCUqEzsu_XxKnqEPP6Od8OeEFM2OtucKOMBONAGwIU\")",
+      "Bash(python3 -c \":*)",
+      "Bash(curl -s \"http://localhost:5678/api/v1/executions/5514?includeData=true\" -H \"X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NzY1YWIxZi1kM2QwLTQwN2QtOTVhZS1iODk5NWM1OWVlZmIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzczMzYwNTY3LCJleHAiOjE3NzU4ODAwMDB9.0lCUqEzsu_XxKnqEPP6Od8OeEFM2OtucKOMBONAGwIU\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d[''''data''''][0][''''id'''']\\)\")",
+      "Bash(curl -s \"http://localhost:5678/api/v1/executions/5515?includeData=true\" -H \"X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NzY1YWIxZi1kM2QwLTQwN2QtOTVhZS1iODk5NWM1OWVlZmIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzczMzYwNTY3LCJleHAiOjE3NzU4ODAwMDB9.0lCUqEzsu_XxKnqEPP6Od8OeEFM2OtucKOMBONAGwIU\")",
+      "Bash(curl -s \"http://localhost:5678/api/v1/executions?workflowId=PLqBX5oN0wviwsyU&limit=3\" -H \"X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NzY1YWIxZi1kM2QwLTQwN2QtOTVhZS1iODk5NWM1OWVlZmIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzczMzYwNTY3LCJleHAiOjE3NzU4ODAwMDB9.0lCUqEzsu_XxKnqEPP6Od8OeEFM2OtucKOMBONAGwIU\")",
+      "Bash(curl -s \"http://localhost:5678/api/v1/executions/5518?includeData=true\" -H \"X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NzY1YWIxZi1kM2QwLTQwN2QtOTVhZS1iODk5NWM1OWVlZmIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzczMzYwNTY3LCJleHAiOjE3NzU4ODAwMDB9.0lCUqEzsu_XxKnqEPP6Od8OeEFM2OtucKOMBONAGwIU\")",
+      "Bash(curl -s \"http://localhost:5678/api/v1/executions/5520?includeData=true\" -H \"X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NzY1YWIxZi1kM2QwLTQwN2QtOTVhZS1iODk5NWM1OWVlZmIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzczMzYwNTY3LCJleHAiOjE3NzU4ODAwMDB9.0lCUqEzsu_XxKnqEPP6Od8OeEFM2OtucKOMBONAGwIU\")"
+    ]
+  }
+}
