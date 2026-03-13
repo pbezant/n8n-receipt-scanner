@@ -1,225 +1,169 @@
-# 🧾 n8n Receipt Scanner → Google Sheets
+# 🧾 n8n Receipt & Invoice Scanner
 
-An n8n workflow that automatically scans receipts uploaded to Google Drive, extracts all data using AI (Mistral OCR + Google Gemini), and logs everything to a Google Sheet with **dynamically managed columns** — new fields like `price_per_gallon`, `line_items`, or `room_rate` are added as new columns automatically the first time they're seen.
+Automatically scan receipts and invoices, extract structured data with AI, and log everything to Google Sheets — with separate tabs for receipts (paid) and invoices (unpaid).
+
+Two n8n workflows included:
+- **Receipt Scanner** — ongoing automation triggered by Google Drive uploads or Gmail
+- **Email Backfill** — one-time batch import of existing receipt/invoice emails
 
 ## ✨ Features
 
-- **Two intake paths** — drop a receipt into Google Drive, or forward/receive a receipt email and it processes automatically
-- **AI-powered extraction** — Mistral AI reads the receipt text; Gemini analyzes and structures it
-- **Receipt-type aware** — gas receipts get `price_per_gallon` + `gallons`, restaurant receipts get `line_items`, hotel receipts get `check_in` / `check_out` / `room_rate`, etc.
-- **Dynamic columns** — Google Sheet headers are auto-managed; new fields are appended as new columns, existing fields map to their existing column
-- **One row per receipt** — clean, consistent spreadsheet layout
+- **Two intake paths** — drop files into Google Drive, or forward receipt emails to auto-process
+- **AI-powered extraction** — Mistral OCR + Google Gemini for structured data extraction
+- **Receipt vs. Invoice routing** — AI classifies each document; receipts go to the Receipts tab, invoices go to the Invoices tab with `payment_status: Unpaid`
+- **Receipt-type aware** — gas receipts get `price_per_gallon` + `gallons`, restaurant receipts get `line_items`, hotel receipts get `check_in` / `check_out`, etc.
+- **Dynamic columns** — new fields are auto-added as columns. No sheet setup needed.
+- **Email backfill workflow** — one-click batch import for all receipt emails from a Gmail label
 
-## 📋 Workflow Overview
+## 📋 How It Works
 
 ```
 Path 1 — Google Drive:
-  Google Drive Trigger (new file in Receipts folder)
-  → Download File (Google Drive)
-  → [shared processing pipeline below]
+  Google Drive Trigger → Download File → AI Pipeline → Route to Sheet Tab
 
 Path 2 — Gmail:
-  Gmail Trigger (matching email with attachment)
-  → Move to Receipts Label (Gmail — add label, archive from inbox)
-  → Upload Attachment to Drive (Google Drive — drop in Receipts folder)
-  → [Drive Trigger fires automatically, picks up from Path 1]
+  Gmail Trigger → Label & Archive → Upload to Drive → (Drive Trigger picks it up)
 
-Shared processing pipeline:
-  → Extract Text (Mistral AI — OCR)
-  → AI Agent (Gemini — structured extraction)
-  → Format Receipt Data (Code — flatten to key/value)
-  → Read Header Row (Sheets API — get current columns)
-  → Sync Columns (Code — merge new fields into header list)
-  → Write Headers (Sheets API — update row 1)
-  → Prepare Row Data (Code — strip internal fields)
-  → Append to Sheet (Google Sheets — add row)
+AI Pipeline (shared):
+  Extract Text (Mistral OCR)
+  → AI Agent (Gemini — structured JSON extraction)
+  → Format & Flatten
+  → Receipt or Invoice? (If node)
+     ├─ Receipt → Sync Columns → Append to "Receipts" tab
+     └─ Invoice → Add payment_status:Unpaid → Sync Columns → Append to "Invoices" tab
 ```
 
 ---
 
-## 🛠️ Prerequisites
+## 🚀 Quick Start (5 minutes)
 
-- A running **n8n** instance (self-hosted or n8n Cloud)
-- A **Google Cloud project** with Drive API, Sheets API, and Gmail API enabled
-- A **Mistral AI** account (free tier works) — [console.mistral.ai](https://console.mistral.ai)
-- A **Google AI Studio** API key for Gemini — [aistudio.google.com](https://aistudio.google.com)
-- A **Gmail** account for the email trigger (can be the same Google account)
+### 1. Prerequisites
 
----
+| Service | What you need | Free tier? |
+|---------|--------------|------------|
+| [n8n](https://n8n.io) | Self-hosted or Cloud instance | Yes (self-hosted) |
+| [Google Cloud](https://console.cloud.google.com) | Project with Drive, Sheets, Gmail APIs enabled | Yes |
+| [Mistral AI](https://console.mistral.ai) | API key | Yes |
+| [Google AI Studio](https://aistudio.google.com) | Gemini API key | Yes |
 
-## 🚀 Setup Guide
-
-### Step 1 — Google Cloud Setup
-
-1. Go to [console.cloud.google.com](https://console.cloud.google.com) and create (or select) a project
-2. Enable these two APIs:
-   - **Google Drive API**
-   - **Google Sheets API**
-
----
-
-### Step 2 — Create Credentials in n8n
-
-You need **five** credentials configured in n8n before importing the workflow.
-
-#### 2a. Google Drive OAuth2 API *(used by 4 nodes)*
-
-> Used for: Drive Trigger, Download File, Read Header Row, Write Headers
-
-1. In your Google Cloud project: **APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID**
-2. Application type: **Web application**
-3. Add your n8n redirect URI as an Authorized Redirect URI:
-   - Self-hosted: `http://YOUR_N8N_HOST:5678/rest/oauth2-credential/callback`
-   - n8n Cloud: `https://YOUR_INSTANCE.app.n8n.cloud/rest/oauth2-credential/callback`
-4. Copy the **Client ID** and **Client Secret**
-5. In n8n: **Credentials → New → Google Drive OAuth2 API**
-   - Paste Client ID and Client Secret
-   - Click **Connect my account** and sign in with Google
-   - Name it: `Your Google Drive OAuth2`
-
-#### 2b. Google Gemini (PaLM) API *(used by Gemini Chat Model)*
-
-1. Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and create an API key
-2. In n8n: **Credentials → New → Google Gemini(PaLM) Api**
-   - Paste your API key
-   - Name it: `Your Google Gemini API Key`
-
-#### 2c. Mistral Cloud API *(used by Extract Text)*
-
-1. Go to [console.mistral.ai](https://console.mistral.ai), create an account, generate an API key
-2. In n8n: **Credentials → New → Mistral Cloud API**
-   - Paste your API key
-   - Name it: `Your Mistral Cloud Account`
-
-#### 2d. Gmail OAuth2 *(used by Gmail Trigger and Move to Receipts Label)*
-
-1. In your Google Cloud project, make sure the **Gmail API** is enabled
-2. In **APIs & Services → Credentials**, add your n8n redirect URI to your existing OAuth 2.0 client (or create a new one)
-3. In n8n: **Credentials → New → Gmail OAuth2 API**
-   - Paste Client ID and Client Secret
-   - Click **Connect my account** and sign in
-   - Name it: `Gmail account`
-
-#### 2e. Google Sheets Service Account *(used by Append to Sheet)*
-
-> A Service Account bypasses OAuth2 redirect requirements for writing to Sheets.
-
-1. In Google Cloud: **APIs & Services → Credentials → Create Credentials → Service Account**
-2. Give it a name (e.g. `n8n-receipt-writer`), click **Done**
-3. Click the service account → **Keys tab → Add Key → JSON** — download the file
-4. In n8n: **Credentials → New → Google API (Service Account)**
-   - Upload the JSON key file
-   - Name it: `Your Google Service Account`
-5. **Share your Google Sheet** with the service account email (found in the JSON file under `client_email`) — give it **Editor** access
-
----
-
-### Step 3 — Create Your Google Drive Folder and Sheet
-
-**Google Drive folder:**
-1. Create a folder named **Receipts** (or any name you prefer) in Google Drive
-2. Copy the folder ID from the URL: `drive.google.com/drive/folders/`**`THIS_PART`**
+### 2. Create Google Resources
 
 **Google Sheet:**
-1. Create a new blank Google Sheet (no headers needed — the workflow manages them)
-2. Copy the spreadsheet ID from the URL: `docs.google.com/spreadsheets/d/`**`THIS_PART`**`/edit`
-3. Share the sheet with your service account email (see Step 2d above)
+1. Create a new Google Sheet
+2. Rename the first tab to **Receipts**
+3. Add a second tab named **Invoices**
+4. Copy the spreadsheet ID from the URL: `docs.google.com/spreadsheets/d/`**`THIS_PART`**`/edit`
 
----
+**Google Drive folder:**
+1. Create a folder (e.g. "Receipts") in Google Drive
+2. Copy the folder ID from the URL: `drive.google.com/drive/folders/`**`THIS_PART`**
 
-### Step 4 — Import the Workflow
+### 3. Create n8n Credentials
+
+You need **5 credentials** in n8n (Settings → Credentials → Add Credential):
+
+| Credential Type | Used By | Setup |
+|----------------|---------|-------|
+| **Google Drive OAuth2** | Drive Trigger, Download, Read/Write Headers | OAuth2 Client ID from Google Cloud |
+| **Google Sheets OAuth2** | Append to Receipts/Invoices | Same OAuth2 client or a Service Account |
+| **Gmail OAuth2** | Gmail Trigger, Move to Label | Same OAuth2 client, enable Gmail API |
+| **Mistral Cloud** | OCR extraction | API key from console.mistral.ai |
+| **Google Gemini** | AI structured extraction | API key from aistudio.google.com |
+
+> **OAuth2 Redirect URI:** Add `http://YOUR_HOST:5678/rest/oauth2-credential/callback` (self-hosted) or `https://YOUR_INSTANCE.app.n8n.cloud/rest/oauth2-credential/callback` (Cloud) to your Google Cloud OAuth2 client.
+
+### 4. Import the Workflow
 
 1. In n8n: **Workflows → Import from File**
-2. Select `workflow.json` from this repo
-3. The workflow opens with all nodes visible
+2. Select [`workflows/receipt-scanner.json`](workflows/receipt-scanner.json)
+
+### 5. Configure (find & replace)
+
+After importing, update these values in the workflow nodes:
+
+| Find this placeholder | Replace with | Where |
+|----------------------|--------------|-------|
+| `YOUR_GOOGLE_SHEET_ID` | Your spreadsheet ID | Read Header Row URL, Write Headers URL, Read Invoice Header Row URL, Write Invoice Headers URL, Append nodes |
+| Credential dropdowns | Select your credentials | Every node with a ⚠️ warning |
+
+**Also configure:**
+- **Google Drive Trigger** → select your Receipts folder
+- **Gmail Trigger** → set email filters (sender, subject, label)
+- **Move to Receipts Label** → set your Gmail label ID
+
+### 6. Activate
+
+Toggle the workflow **Active**. Drop a receipt image in your Drive folder to test.
 
 ---
 
-### Step 5 — Configure the Workflow
+## 📦 Repo Structure
 
-Open each of these nodes and update them:
-
-#### Gmail Trigger
-- Select your **Gmail account** credential
-- Under **Filters**, add a **Sender** address or **Subject** keyword to match receipt emails (e.g. subject contains `receipt` or `invoice`)
-- Leave **Read Status** as `Unread` to avoid reprocessing old emails
-
-#### Move to Receipts Label
-- Select your **Gmail account** credential
-- Set the **Label IDs** field to your Gmail "Receipts" label:
-  1. In Gmail, create a label named **Receipts** (Settings → Labels → Create)
-  2. Find the label ID: open Gmail in a browser, click the label, and copy the ID from the URL (e.g. `Label_1234567890`)
-  3. Paste that ID into the **Label IDs** field in this node
-
-#### Upload Attachment to Drive
-- Select your **Google Drive OAuth2** credential
-- The **Folder** is pre-set to your Receipts folder — update it if your folder ID differs
-
-#### Google Drive Trigger
-- Click the **Folder to Watch** field → select your Receipts folder (or paste the folder ID)
-- Set **Poll interval** to your preference (default: every minute)
-- Select your **Google Drive OAuth2** credential
-
-#### Download File
-- Select your **Google Drive OAuth2** credential
-
-#### Extract Text (Mistral)
-- Select your **Mistral Cloud Account** credential
-
-#### Gemini Chat Model
-- Select your **Google Gemini API Key** credential
-
-#### Read Header Row
-- In the URL, replace `YOUR_SPREADSHEET_ID` with your actual spreadsheet ID
-
-#### Write Headers
-- In the URL, replace `YOUR_SPREADSHEET_ID` with your actual spreadsheet ID
-
-#### Append to Sheet
-- Click the **Document** field and paste your spreadsheet URL (or replace `YOUR_SPREADSHEET_ID` in the existing URL)
-- Select your **Google Service Account** credential
-
----
-
-### Step 6 — Activate
-
-Toggle the workflow **Active** in the top-right corner. Upload a receipt image to your Google Drive Receipts folder to test it.
+```
+workflows/
+  receipt-scanner.json          # Main workflow — import this into n8n
+  backfill-receipt-emails.json  # Optional: batch-import old emails
+sample-receipts/
+  README.md                     # Supported file formats
+LICENSE
+README.md                       # This file
+```
 
 ---
 
 ## 📊 Example Output
 
-For a gas receipt, the sheet will get columns like:
+**Receipts tab:**
 
-| vendor | date | total | category | price_per_gallon | gallons | fuel_grade | payment_method |
-|--------|------|-------|----------|-----------------|---------|------------|----------------|
-| Shell | 2026-02-14 | 52.80 | Gas | 3.52 | 15.0 | Regular | Credit |
+| document_type | vendor | date | total | category | price_per_gallon | gallons | fuel_grade |
+|--------------|--------|------|-------|----------|-----------------|---------|------------|
+| receipt | Shell | 2026-02-14 | 52.80 | Gas | 3.52 | 15.0 | Regular |
+| receipt | The Grill | 2026-02-20 | 67.50 | Food | — | — | — |
 
-For a restaurant receipt:
+**Invoices tab:**
 
-| vendor | date | total | subtotal | tax | tip | line_items | server |
-|--------|------|-------|----------|-----|-----|------------|--------|
-| The Grill | 2026-02-20 | 67.50 | 55.00 | 4.95 | 7.55 | Burger x1 @ $18 = $18 \| Fries x2 @ $5 = $10 | Sarah |
+| document_type | vendor | date | total | invoice_number | due_date | payment_status |
+|--------------|--------|------|-------|---------------|----------|---------------|
+| invoice | Acme Corp | 2026-03-01 | 1200.00 | INV-2026-0042 | 2026-03-31 | Unpaid |
 
-New columns are added automatically — you never need to set up the sheet manually.
+Columns are added dynamically — gas receipts auto-create `price_per_gallon`, hotel receipts create `check_in`/`check_out`, etc.
 
 ---
 
 ## 🔧 Customization
 
-**Change the AI model:** Open the **Gemini Chat Model** node and select a different model from the dropdown (e.g. `gemini-pro`, `gemini-flash`).
-
-**Change the OCR model:** The **Extract Text** node uses Mistral's default OCR model. You can swap it for any Mistral vision model.
-
-**Add more extraction fields:** Edit the prompt in the **AI Agent** node to instruct the model to extract additional fields for specific receipt types.
-
-**Sheet name:** If your sheet tab isn't named `Sheet1`, update the URL in Read Header Row, Write Headers, and the Sheet Name in Append to Sheet.
+| What | How |
+|------|-----|
+| Change AI model | Open **Gemini Chat Model** node → select a different model |
+| Change OCR | Open **Extract Text** node → pick a different Mistral model |
+| Add extraction fields | Edit the prompt in **AI Agent** → add field instructions |
+| Different sheet tabs | Update tab names in the HTTP Request URLs and Append nodes |
 
 ---
 
-## 🤔 Why HTTP requests for Read/Write Headers?
+## 📩 Email Backfill (Optional)
 
-The native Google Sheets n8n node always treats row 1 as column headers — you can't read or overwrite the headers themselves through it. The two HTTP nodes (`Read Header Row` and `Write Headers`) call the Sheets REST API directly using the same Google Drive OAuth2 credential, bypassing this limitation to enable fully dynamic column management.
+Want to import old receipt emails in bulk?
+
+1. Import [`workflows/backfill-receipt-emails.json`](workflows/backfill-receipt-emails.json)
+2. Set your Gmail OAuth2 credential
+3. Edit the query in the HTTP Request node (e.g. change the date range or label)
+4. Run manually — it fetches all matching emails and uploads attachments to Drive
+
+The main Receipt Scanner workflow picks them up from there automatically.
+
+---
+
+## 🤔 FAQ
+
+**Why HTTP requests instead of the Google Sheets node for headers?**
+The native Sheets node treats row 1 as immutable headers. The HTTP nodes call the Sheets API directly to read and write row 1, enabling fully dynamic column management.
+
+**Why separate Receipts and Invoices tabs?**
+Receipts are proof of payment (already paid). Invoices are bills awaiting payment. Separating them lets you track what's paid vs. unpaid at a glance.
+
+**Can I use OpenAI instead of Gemini?**
+Yes — swap the Gemini Chat Model node for an OpenAI Chat Model node. The AI Agent prompt works with any LLM.
 
 ---
 

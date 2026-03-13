@@ -1,0 +1,329 @@
+{
+  "name": "Backfill 2025 Receipt Emails \u2192 Drive",
+  "description": null,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "d1e2f3a4-b5c6-7890-def0-123456789abc",
+      "name": "Run Manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "position": [
+        240,
+        304
+      ],
+      "typeVersion": 1
+    },
+    {
+      "id": "e2f3a4b5-c6d7-8901-ef01-23456789abcd",
+      "name": "Get All 2025 Emails",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        464,
+        304
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      },
+      "parameters": {
+        "method": "GET",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "label:Bezant-Solutions-LLC/Receipts after:2025/01/01 before:2026/01/01"
+            },
+            {
+              "name": "maxResults",
+              "value": "500"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f3g4h5i6-j7k8-9012-f123-456789abcde0",
+      "name": "Split Messages",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        688,
+        304
+      ],
+      "parameters": {
+        "fieldToSplitOut": "messages",
+        "options": {}
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://gmail.googleapis.com/gmail/v1/users/me/messages/{{ $json.id }}?format=full",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "options": {}
+      },
+      "id": "g4h5i6j7-k8l9-0123-g012-456789abcdef",
+      "name": "Get Full Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        912,
+        304
+      ],
+      "typeVersion": 4.2,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction findInParts(parts, messageId) {\n  const result = { files: [], htmlBody: null };\n  if (!parts) return result;\n  for (const part of parts) {\n    if (part.body && part.body.attachmentId && part.filename) {\n      result.files.push({\n        type: 'attachment',\n        messageId,\n        attachmentId: part.body.attachmentId,\n        filename: part.filename,\n        mimeType: part.mimeType || 'application/octet-stream'\n      });\n    } else if (part.mimeType === 'text/html' && part.body && part.body.data && !result.htmlBody) {\n      result.htmlBody = part.body.data;\n    }\n    if (part.parts) {\n      const sub = findInParts(part.parts, messageId);\n      result.files.push(...sub.files);\n      if (!result.htmlBody) result.htmlBody = sub.htmlBody;\n    }\n  }\n  return result;\n}\n\nconst results = [];\n\nfor (const item of $input.all()) {\n  const message = item.json;\n  const { files, htmlBody } = findInParts(message.payload && message.payload.parts, message.id);\n\n  const topLevel = message.payload || {};\n  const topLevelHtml = (topLevel.mimeType === 'text/html' && topLevel.body && topLevel.body.data)\n    ? topLevel.body.data : null;\n  const htmlData = htmlBody || topLevelHtml;\n\n  if (files.length > 0) {\n    results.push(...files.map(f => ({ json: f })));\n  } else if (htmlData) {\n    const subject = message.Subject || ('receipt-' + message.id);\n    const filename = subject.replace(/[^a-zA-Z0-9\\s\\-_]/g, '').trim().replace(/\\s+/g, '-').substring(0, 80) + '.html';\n    results.push({ json: { type: 'html', messageId: message.id, filename, mimeType: 'text/html', htmlData } });\n  }\n}\n\nreturn results;\n"
+      },
+      "id": "h5i6j7k8-l9m0-1234-h123-56789abcdef0",
+      "name": "Extract Attachments",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1136,
+        304
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.type }}",
+              "rightValue": "attachment",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "k8l9m0n1-o2p3-4567-k456-89abcdef0123",
+      "name": "Has File Attachment?",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        1360,
+        304
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "url": "=https://gmail.googleapis.com/gmail/v1/users/me/messages/{{ $json.messageId }}/attachments/{{ $json.attachmentId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "options": {}
+      },
+      "id": "i6j7k8l9-m0n1-2345-i234-6789abcdef01",
+      "name": "Download Attachment Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1584,
+        200
+      ],
+      "typeVersion": 4.2,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst metaItems = $('Has File Attachment?').all();\nconst results = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const downloadItem = $input.all()[i];\n  const meta = (metaItems[i] || {}).json || {};\n\n  const base64url = downloadItem.json.data;\n  const filename = meta.filename || 'attachment.bin';\n  const mimeType = meta.mimeType || 'application/octet-stream';\n\n  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');\n  const buffer = Buffer.from(base64, 'base64');\n\n  results.push({\n    json: { fileName: filename },\n    binary: {\n      attachment_0: await this.helpers.prepareBinaryData(buffer, filename, mimeType)\n    }\n  });\n}\n\nreturn results;\n"
+      },
+      "id": "j7k8l9m0-n1o2-3456-j345-789abcdef012",
+      "name": "Prepare Binary - File",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1808,
+        200
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst results = [];\n\nfor (const item of $input.all()) {\n  const htmlData = item.json.htmlData;\n  const filename = item.json.filename;\n  const base64 = htmlData.replace(/-/g, '+').replace(/_/g, '/');\n  const buffer = Buffer.from(base64, 'base64');\n  results.push({\n    json: { fileName: filename },\n    binary: {\n      attachment_0: await this.helpers.prepareBinaryData(buffer, filename, 'text/html')\n    }\n  });\n}\n\nreturn results;\n"
+      },
+      "id": "l9m0n1o2-p3q4-5678-l567-9abcdef01234",
+      "name": "Decode HTML Body",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1584,
+        420
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "inputDataFieldName": "attachment_0",
+        "name": "={{ $json.fileName }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1fhdEwFDwKww_VQihoiU6bpe8unhUCC-L",
+          "mode": "list",
+          "cachedResultName": "Receipts 2025",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1fhdEwFDwKww_VQihoiU6bpe8unhUCC-L"
+        },
+        "options": {}
+      },
+      "id": "a4b5c6d7-e8f9-0123-0123-456789abcdef",
+      "name": "Upload to Receipts 2025",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [
+        2032,
+        304
+      ],
+      "typeVersion": 3,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "JQNjsgYJuio2qaG6",
+          "name": "Google Drive account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Run Manually": {
+      "main": [
+        [
+          {
+            "node": "Get All 2025 Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All 2025 Emails": {
+      "main": [
+        [
+          {
+            "node": "Split Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Full Message": {
+      "main": [
+        [
+          {
+            "node": "Extract Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Attachments": {
+      "main": [
+        [
+          {
+            "node": "Has File Attachment?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has File Attachment?": {
+      "main": [
+        [
+          {
+            "node": "Download Attachment Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Decode HTML Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Attachment Data": {
+      "main": [
+        [
+          {
+            "node": "Prepare Binary - File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Binary - File": {
+      "main": [
+        [
+          {
+            "node": "Upload to Receipts 2025",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decode HTML Body": {
+      "main": [
+        [
+          {
+            "node": "Upload to Receipts 2025",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Messages": {
+      "main": [
+        [
+          {
+            "node": "Get Full Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "meta": null,
+  "tags": []
+}
