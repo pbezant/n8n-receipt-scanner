@@ -4,80 +4,6 @@
   "nodes": [
     {
       "parameters": {
-        "url": "https://sheets.googleapis.com/v4/spreadsheets/YOUR_GOOGLE_SHEET_ID/values/Receipts!1:1",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "googleDriveOAuth2Api",
-        "options": {}
-      },
-      "id": "b4ce5d2b-02e5-49ba-a0e7-c6b560454f3f",
-      "name": "Read Header Row",
-      "type": "n8n-nodes-base.httpRequest",
-      "position": [
-        7004,
-        1952
-      ],
-      "typeVersion": 4.2,
-      "credentials": {
-        "googleDriveOAuth2Api": {
-          "id": "YOUR_GOOGLE_DRIVE_CREDENTIAL_ID",
-          "name": "Google Drive account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "// Get existing sheet headers from Sheets API GET response\nconst headerResponse = $input.item.json;\nconst existingHeaders = (headerResponse.values && headerResponse.values[0])\n  ? headerResponse.values[0].filter(h => h != null && h.toString().trim() !== '')\n  : [];\n\n// Get the flattened receipt data from Format Receipt Data\nconst receiptData = $('Format Receipt Data1').item.json;\nconst receiptKeys = Object.keys(receiptData);\n\n// Find any fields that don't yet have a column in the sheet\nconst newKeys = receiptKeys.filter(k => !existingHeaders.includes(k));\nconst allHeaders = [...existingHeaders, ...newKeys];\n\nif (newKeys.length > 0) {\n  console.log('Adding new columns: ' + newKeys.join(', '));\n}\n\n// Pass receipt data through + _headers so Write Headers node can update row 1.\n// _headers won't write to the sheet since no column by that name exists there.\nreturn [{\n  json: {\n    ...receiptData,\n    _headers: JSON.stringify(allHeaders)\n  }\n}];"
-      },
-      "id": "d0cae3cf-8708-4a96-a8bf-45f6ac04f2fc",
-      "name": "Sync Columns",
-      "type": "n8n-nodes-base.code",
-      "position": [
-        7244,
-        1952
-      ],
-      "typeVersion": 2
-    },
-    {
-      "parameters": {
-        "method": "PUT",
-        "url": "https://sheets.googleapis.com/v4/spreadsheets/YOUR_GOOGLE_SHEET_ID/values/Receipts!1:1?valueInputOption=USER_ENTERED",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "googleDriveOAuth2Api",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ {\"values\": [JSON.parse($json._headers)]} }}",
-        "options": {}
-      },
-      "id": "048c9bf9-56ea-4038-85e8-6d03e27fc78c",
-      "name": "Write Headers",
-      "type": "n8n-nodes-base.httpRequest",
-      "position": [
-        7452,
-        1952
-      ],
-      "typeVersion": 4.2,
-      "credentials": {
-        "googleDriveOAuth2Api": {
-          "id": "YOUR_GOOGLE_DRIVE_CREDENTIAL_ID",
-          "name": "Google Drive account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "// Write Headers outputs the Sheets API response, not the receipt data.\n// Pull the receipt data back from Sync Columns and strip the internal _headers field.\nconst syncData = $('Sync Columns').item.json;\nconst { _headers, ...receiptData } = syncData;\nreturn [{ json: receiptData }];"
-      },
-      "id": "d4d1d7bc-4778-479b-8e50-a8f0f5556c57",
-      "name": "Prepare Row Data",
-      "type": "n8n-nodes-base.code",
-      "position": [
-        7644,
-        1952
-      ],
-      "typeVersion": 2
-    },
-    {
-      "parameters": {
         "pollTimes": {
           "item": [
             {
@@ -133,7 +59,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=You are an expert at extracting structured data from receipts and invoices.\n\nReceipt content:\n{{ $json.pages[0].markdown }}\n\nExtract EVERY piece of information from this document and return it as a single flat or nested JSON object. Always include these base fields if present:\n- document_type (string): REQUIRED \u2014 \"receipt\" if this is a proof of payment, \"invoice\" if this is a bill/invoice requesting payment\n- vendor (string): store, restaurant, or company name\n- date (string): purchase or invoice date in YYYY-MM-DD format\n- total (number): final total amount\n- subtotal (number): amount before tax\n- tax (number): tax amount\n- tip (number): tip amount\n- payment_method (string)\n- category (string): Food, Gas, Groceries, Office Supplies, Travel, Utilities, Medical, Entertainment, etc.\n- receipt_number (string)\n- address (string)\n- phone (string)\n\nADDITIONALLY, extract ALL type-specific fields you find. Examples:\n\nFor GAS receipts also include:\n- price_per_gallon (number)\n- gallons (number)\n- fuel_grade (string: Regular/Plus/Premium/Diesel)\n- odometer (number, if shown)\n- pump_number (string, if shown)\n\nFor RESTAURANT/FOOD receipts also include:\n- line_items: array of objects with name, qty, unit_price, total_price for each item\n- server (string, if shown)\n- table_number (string, if shown)\n\nFor GROCERY receipts also include:\n- line_items: array of objects with name, qty, unit_price, total_price for each item\n- savings (number, total discounts/coupons if shown)\n\nFor HOTEL receipts also include:\n- check_in (string, YYYY-MM-DD)\n- check_out (string, YYYY-MM-DD)\n- nights (number)\n- room_rate (number per night)\n- room_number (string)\n\nFor SERVICES/INVOICES also include:\n- invoice_number (string)\n- due_date (string, YYYY-MM-DD)\n- billed_to (string)\n- line_items: array of objects with description, qty, unit_price, total_price\n\nFor any other fields visible on the document that don't fit the above, include them with a sensible snake_case key name.\n\nRules:\n- document_type MUST always be included \u2014 never omit it\n- Omit any other field that is not present on the document \u2014 never include null or empty values\n- Return ONLY a raw JSON object, no markdown, no explanation, no code blocks\n- Numbers should be actual numbers, not strings",
+        "text": "=You are an expert at extracting structured data from receipts and invoices.\n\nReceipt content:\n{{ $json.pages[0].markdown }}\n\nExtract information from this document and return it as a JSON object with EXACTLY these fields.\n\nREQUIRED FIELDS (always include):\n- document_type (string): REQUIRED — \"receipt\" if proof of payment, \"invoice\" if a bill requesting payment\n- vendor (string): store, restaurant, or company name\n- date (string): purchase/invoice date in YYYY-MM-DD format\n- category (string): MUST be exactly one of: \"Food & Dining\", \"Groceries\", \"Gas & Fuel\", \"Office Supplies\", \"Travel & Lodging\", \"Utilities\", \"Medical & Health\", \"Entertainment\", \"Shopping\", \"Transportation\", \"Subscriptions\", \"Home & Garden\", \"Auto & Maintenance\", \"Personal Care\", \"Education\", \"Other\"\n- total (number): final total amount\n\nOPTIONAL FIELDS (include only if present on the document):\n- subtotal (number): amount before tax\n- tax (number): tax amount\n- tip (number): tip amount\n- payment_method (string): e.g. \"Visa ending 1234\", \"Cash\", \"Debit ending 5678\"\n- description (string): a detailed 1-line summary capturing ALL key details from the receipt. Pack in type-specific info:\n  - Gas: include gallons, price/gallon, fuel grade, pump #. Example: \"15.2 gal Regular @ $3.45/gal, Pump 13\"\n  - Restaurant: include party size, highlight dishes. Example: \"Dinner for 2 — burger, caesar salad, 2 iced teas\"\n  - Grocery: include item count and savings. Example: \"Weekly run — 23 items, saved $4.50 with coupons\"\n  - Hotel: include nights, room rate, room #. Example: \"2-night stay, room 412 @ $159/night\"\n  - Auto: include services performed, mileage. Example: \"Oil change + tire rotation, 45,230 mi\"\n  - Subscription/Service: include plan name, period. Example: \"Annual subscription renewal\"\n  - Shopping: include key items bought. Example: \"Darth Vader face mask\"\n  This field is important — capture everything notable about the transaction.\n- items (string): if line items exist, format as a single readable string listing each item with its price. Examples:\n  - \"Milk $3.99 · Bread $2.49 · Eggs $4.99 · Bananas $1.29\"\n  - \"Cheeseburger $12.99 · Caesar Salad $9.99 · Iced Tea $2.50\"\n  - \"Oil Change $39.99 · Oil Filter $8.99 · Labor $25.00\"\n  Use \" · \" (space-middledot-space) as the separator between items. Include ALL line items on the receipt.\n- address (string): vendor street address, city, state ZIP\n- receipt_number (string): receipt or transaction number\n- invoice_number (string): for invoices only\n- due_date (string): for invoices only, YYYY-MM-DD format\n- billed_to (string): for invoices only, who is being billed\n\nRules:\n- document_type and category MUST always be included\n- category MUST be exactly one of the listed options — pick the best fit\n- description should be detailed and capture ALL key purchase details, not just the vendor name\n- items must be a single string with \" · \" separators, never an array\n- Include EVERY line item from the receipt in the items field\n- Omit any optional field not found on the document — never return null or empty values\n- Return ONLY a raw JSON object — no markdown, no explanation, no code blocks\n- Numbers must be actual numbers, not strings",
         "options": {}
       },
       "id": "1f4c134a-60ac-43b1-a2e2-762314cce1b2",
@@ -167,23 +93,54 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse AI response JSON\nlet raw = $json.output ?? '';\nif (typeof raw !== 'string') raw = JSON.stringify(raw);\nraw = raw.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```\\s*$/, '').trim();\nconst jsonMatch = raw.match(/\\{[\\s\\S]*\\}/);\nif (!jsonMatch) throw new Error('No JSON found in AI response: ' + raw.substring(0, 200));\nconst data = JSON.parse(jsonMatch[0]);\n\n// Format a single line item as a readable summary string\nfunction formatLineItem(item) {\n  const name = item.name || item.description || item.item || item.service || item.product || 'Item';\n  const qtyKey = Object.keys(item).find(k => /qty|quantity|count|gallons|gal|units|hrs|hours/.test(k.toLowerCase()));\n  const priceKey = Object.keys(item).find(k => /unit_?price|price_?per|rate|each|per_?gal|cost/.test(k.toLowerCase()));\n  const totalKey = Object.keys(item).find(k => /^total$|line_?total|item_?total|amount|extended/.test(k.toLowerCase()));\n  const parts = [name];\n  if (qtyKey && item[qtyKey] != null) parts.push(`x${item[qtyKey]}`);\n  if (priceKey && item[priceKey] != null) parts.push(`@ $${item[priceKey]}`);\n  if (totalKey && item[totalKey] != null) parts.push(`= $${item[totalKey]}`);\n  return parts.join(' ');\n}\n\n// Flatten \u2014 arrays of objects become a readable pipe-delimited summary string\nfunction flatten(obj, prefix = '') {\n  const result = {};\n  for (const [key, val] of Object.entries(obj)) {\n    if (val === null || val === undefined || val === '') continue;\n    const fullKey = prefix ? `${prefix}_${key}` : key;\n    if (Array.isArray(val)) {\n      if (val.length === 0) continue;\n      if (typeof val[0] === 'object' && val[0] !== null) {\n        result[fullKey] = val.map(formatLineItem).join(' | ');\n      } else {\n        result[fullKey] = val.join(' | ');\n      }\n    } else if (typeof val === 'object') {\n      Object.assign(result, flatten(val, fullKey));\n    } else {\n      result[fullKey] = val;\n    }\n  }\n  return result;\n}\n\n// Always output exactly one row per receipt\nreturn [{ json: flatten(data) }];"
+        "jsCode": "// Parse AI response JSON\nlet raw = $json.output ?? '';\nif (typeof raw !== 'string') raw = JSON.stringify(raw);\nraw = raw.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```\\s*$/, '').trim();\nconst jsonMatch = raw.match(/\\{[\\s\\S]*\\}/);\nif (!jsonMatch) throw new Error('No JSON found in AI response: ' + raw.substring(0, 200));\nconst data = JSON.parse(jsonMatch[0]);\n\n// Allowed categories for validation\nconst VALID_CATEGORIES = [\n  'Food & Dining', 'Groceries', 'Gas & Fuel', 'Office Supplies',\n  'Travel & Lodging', 'Utilities', 'Medical & Health', 'Entertainment',\n  'Shopping', 'Transportation', 'Subscriptions', 'Home & Garden',\n  'Auto & Maintenance', 'Personal Care', 'Education', 'Other'\n];\n\n// Validate / fix category\nif (!data.category || !VALID_CATEGORIES.includes(data.category)) {\n  const cat = (data.category || '').toLowerCase();\n  const match = VALID_CATEGORIES.find(c => cat.includes(c.split(' ')[0].toLowerCase()));\n  data.category = match || 'Other';\n}\n\n// If AI returned items as an array, convert to readable string\nif (Array.isArray(data.items)) {\n  data.items = data.items.map(item => {\n    if (typeof item === 'string') return item;\n    const name = item.name || item.description || item.item || 'Item';\n    const price = item.total_price || item.unit_price || item.price || item.amount;\n    return price != null ? `${name} $${price}` : name;\n  }).join(' \\u00b7 ');\n} else if (data.line_items) {\n  const li = Array.isArray(data.line_items) ? data.line_items : [];\n  data.items = li.map(item => {\n    if (typeof item === 'string') return item;\n    const name = item.name || item.description || item.item || 'Item';\n    const price = item.total_price || item.unit_price || item.price || item.amount;\n    return price != null ? `${name} $${price}` : name;\n  }).join(' \\u00b7 ');\n  delete data.line_items;\n}\n\n// Map internal field names to EXACT sheet column headers\nconst FIELD_MAP = {\n  'document_type': null,\n  'date': 'Date',\n  'vendor': 'Vendor',\n  'category': 'Category',\n  'total': 'Total',\n  'subtotal': 'Subtotal',\n  'tax': 'Tax',\n  'tip': 'Tip',\n  'payment_method': 'Payment Method',\n  'description': 'Description',\n  'items': 'Items',\n  'address': 'Address',\n  'receipt_number': 'Receipt #',\n  'invoice_number': 'Invoice #',\n  'due_date': 'Due Date',\n  'billed_to': 'Billed To'\n};\n\nconst row = {};\n// Keep document_type as-is for the Receipt or Invoice? routing node\nrow.document_type = data.document_type || 'receipt';\nfor (const [field, header] of Object.entries(FIELD_MAP)) {\n  if (!header) continue;\n  if (data[field] !== undefined && data[field] !== null && data[field] !== '') {\n    row[header] = data[field];\n  }\n}\n\nreturn [{ json: row }];"
       },
       "id": "e1dff71d-0b9b-440c-8b9e-6196d6dd4804",
       "name": "Format Receipt Data1",
       "type": "n8n-nodes-base.code",
       "position": [
-        6448,
-        1952
+        7240,
+        1536
       ],
       "typeVersion": 2
+    },
+    {
+      "id": "aa000001-0000-0000-0000-route0000001a",
+      "name": "Receipt or Invoice?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        7460,
+        1536
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.document_type }}",
+              "rightValue": "invoice",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "YOUR_GOOGLE_SHEET_ID",
+          "value": "1JRaa4e33gdODnX3qK0B6Cs_3_e4UG5NTLPoeWpctVGU",
           "mode": "list",
           "cachedResultName": "Receipts",
           "cachedResultUrl": ""
@@ -199,8 +156,8 @@
           "matchingColumns": [],
           "schema": [
             {
-              "id": "date",
-              "displayName": "date",
+              "id": "Date",
+              "displayName": "Date",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -208,8 +165,8 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "total",
-              "displayName": "total",
+              "id": "Vendor",
+              "displayName": "Vendor",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -217,8 +174,8 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "tax",
-              "displayName": "tax",
+              "id": "Category",
+              "displayName": "Category",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -226,8 +183,8 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "category",
-              "displayName": "category",
+              "id": "Total",
+              "displayName": "Total",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -235,8 +192,8 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "address",
-              "displayName": "address",
+              "id": "Subtotal",
+              "displayName": "Subtotal",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -244,8 +201,8 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "pump_number",
-              "displayName": "pump_number",
+              "id": "Tax",
+              "displayName": "Tax",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -253,8 +210,8 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "price_per_gallon",
-              "displayName": "price_per_gallon",
+              "id": "Tip",
+              "displayName": "Tip",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -262,8 +219,8 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "gallons",
-              "displayName": "gallons",
+              "id": "Payment Method",
+              "displayName": "Payment Method",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -271,8 +228,8 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "fuel_grade",
-              "displayName": "fuel_grade",
+              "id": "Description",
+              "displayName": "Description",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -280,8 +237,8 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "subtotal",
-              "displayName": "subtotal",
+              "id": "Items",
+              "displayName": "Items",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -289,8 +246,17 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "line_items",
-              "displayName": "line_items",
+              "id": "Address",
+              "displayName": "Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Receipt #",
+              "displayName": "Receipt #",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -306,11 +272,11 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        7852,
-        1952
+        7700,
+        1436
       ],
       "id": "87396086-9b3f-48b6-b9f4-480427935903",
-      "name": "Append row in sheet1",
+      "name": "Append to Receipts",
       "credentials": {
         "googleSheetsOAuth2Api": {
           "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
@@ -427,121 +393,16 @@
       }
     },
     {
-      "id": "aa000001-0000-0000-0000-route0000001a",
-      "name": "Receipt or Invoice?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        6700,
-        1952
-      ],
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": false,
-            "leftValue": "",
-            "typeValidation": "loose"
-          },
-          "conditions": [
-            {
-              "id": "cond1",
-              "leftValue": "={{ $json.document_type }}",
-              "rightValue": "invoice",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        }
-      }
-    },
-    {
       "id": "aa000002-0000-0000-0000-invoice00002",
       "name": "Add Invoice Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        6950,
-        2252
+        7700,
+        1636
       ],
       "parameters": {
-        "jsCode": "// Add payment_status for new invoices\nconst data = { ...$input.item.json, payment_status: 'Unpaid' };\nreturn [{ json: data }];"
-      }
-    },
-    {
-      "id": "aa000003-0000-0000-0000-invoice00003",
-      "name": "Read Invoice Header Row",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        7200,
-        2252
-      ],
-      "credentials": {
-        "googleDriveOAuth2Api": {
-          "id": "YOUR_GOOGLE_DRIVE_CREDENTIAL_ID",
-          "name": "Google Drive account"
-        }
-      },
-      "parameters": {
-        "url": "https://sheets.googleapis.com/v4/spreadsheets/YOUR_GOOGLE_SHEET_ID/values/Invoices!1:1",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "googleDriveOAuth2Api",
-        "options": {}
-      }
-    },
-    {
-      "id": "aa000004-0000-0000-0000-invoice00004",
-      "name": "Sync Invoice Columns",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        7400,
-        2252
-      ],
-      "parameters": {
-        "jsCode": "const headerResponse = $input.item.json;\nconst existingHeaders = (headerResponse.values && headerResponse.values[0])\n  ? headerResponse.values[0].filter(h => h != null && h.toString().trim() !== '')\n  : [];\n\nconst invoiceData = $('Add Invoice Fields').item.json;\nconst invoiceKeys = Object.keys(invoiceData);\n\nconst newKeys = invoiceKeys.filter(k => !existingHeaders.includes(k));\nconst allHeaders = [...existingHeaders, ...newKeys];\n\nif (newKeys.length > 0) {\n  console.log('Adding new invoice columns: ' + newKeys.join(', '));\n}\n\nreturn [{\n  json: {\n    ...invoiceData,\n    _headers: JSON.stringify(allHeaders)\n  }\n}];\n"
-      }
-    },
-    {
-      "id": "aa000005-0000-0000-0000-invoice00005",
-      "name": "Write Invoice Headers",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        7600,
-        2252
-      ],
-      "credentials": {
-        "googleDriveOAuth2Api": {
-          "id": "YOUR_GOOGLE_DRIVE_CREDENTIAL_ID",
-          "name": "Google Drive account"
-        }
-      },
-      "parameters": {
-        "method": "PUT",
-        "url": "https://sheets.googleapis.com/v4/spreadsheets/YOUR_GOOGLE_SHEET_ID/values/Invoices!1:1?valueInputOption=USER_ENTERED",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "googleDriveOAuth2Api",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ {\"values\": [JSON.parse($json._headers)]} }}",
-        "options": {}
-      }
-    },
-    {
-      "id": "aa000006-0000-0000-0000-invoice00006",
-      "name": "Prepare Invoice Row Data",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        7800,
-        2252
-      ],
-      "parameters": {
-        "jsCode": "const syncData = $('Sync Invoice Columns').item.json;\nconst { _headers, ...invoiceData } = syncData;\nreturn [{ json: invoiceData }];\n"
+        "jsCode": "// Add Payment Status for invoices, strip routing field\nconst { document_type, ...rest } = $input.item.json;\nconst data = { ...rest, 'Payment Status': 'Unpaid' };\nreturn [{ json: data }];"
       }
     },
     {
@@ -550,8 +411,8 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        8000,
-        2252
+        7940,
+        1636
       ],
       "credentials": {
         "googleSheetsOAuth2Api": {
@@ -563,7 +424,7 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "YOUR_GOOGLE_SHEET_ID",
+          "value": "1JRaa4e33gdODnX3qK0B6Cs_3_e4UG5NTLPoeWpctVGU",
           "mode": "list",
           "cachedResultName": "Receipts",
           "cachedResultUrl": ""
@@ -577,7 +438,134 @@
           "mappingMode": "autoMapInputData",
           "value": {},
           "matchingColumns": [],
-          "schema": [],
+          "schema": [
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Vendor",
+              "displayName": "Vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Total",
+              "displayName": "Total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Subtotal",
+              "displayName": "Subtotal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Tax",
+              "displayName": "Tax",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Due Date",
+              "displayName": "Due Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Invoice #",
+              "displayName": "Invoice #",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Payment Status",
+              "displayName": "Payment Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Payment Method",
+              "displayName": "Payment Method",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Description",
+              "displayName": "Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Items",
+              "displayName": "Items",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Billed To",
+              "displayName": "Billed To",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Address",
+              "displayName": "Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
           "attemptToConvertTypes": false,
           "convertFieldsToString": false
         },
@@ -586,55 +574,22 @@
     }
   ],
   "connections": {
-    "Read Header Row": {
-      "main": [
-        [
-          {
-            "node": "Sync Columns",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Sync Columns": {
-      "main": [
-        [
-          {
-            "node": "Write Headers",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Write Headers": {
-      "main": [
-        [
-          {
-            "node": "Prepare Row Data",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Prepare Row Data": {
-      "main": [
-        [
-          {
-            "node": "Append row in sheet1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Google Drive Trigger1": {
       "main": [
         [
           {
             "node": "Download file1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file1": {
+      "main": [
+        [
+          {
+            "node": "Extract text1",
             "type": "main",
             "index": 0
           }
@@ -652,23 +607,23 @@
         ]
       ]
     },
-    "AI Agent1": {
-      "main": [
-        [
-          {
-            "node": "Format Receipt Data1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Google Gemini Chat Model1": {
       "ai_languageModel": [
         [
           {
             "node": "AI Agent1",
             "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Format Receipt Data1",
+            "type": "main",
             "index": 0
           }
         ]
@@ -685,11 +640,29 @@
         ]
       ]
     },
-    "Download file1": {
+    "Receipt or Invoice?": {
       "main": [
         [
           {
-            "node": "Extract text1",
+            "node": "Add Invoice Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Append to Receipts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Invoice Fields": {
+      "main": [
+        [
+          {
+            "node": "Append to Invoices",
             "type": "main",
             "index": 0
           }
@@ -712,79 +685,6 @@
         [
           {
             "node": "Upload Attachment to Drive",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Receipt or Invoice?": {
-      "main": [
-        [
-          {
-            "node": "Add Invoice Fields",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Read Header Row",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Add Invoice Fields": {
-      "main": [
-        [
-          {
-            "node": "Read Invoice Header Row",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Read Invoice Header Row": {
-      "main": [
-        [
-          {
-            "node": "Sync Invoice Columns",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Sync Invoice Columns": {
-      "main": [
-        [
-          {
-            "node": "Write Invoice Headers",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Write Invoice Headers": {
-      "main": [
-        [
-          {
-            "node": "Prepare Invoice Row Data",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Prepare Invoice Row Data": {
-      "main": [
-        [
-          {
-            "node": "Append to Invoices",
             "type": "main",
             "index": 0
           }
