@@ -1,0 +1,173 @@
+{
+  "name": "Gmail Invoice Crawler – 2026",
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "node-webhook",
+      "name": "Crawl Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "position": [100, 300],
+      "typeVersion": 2,
+      "webhookId": "crawl-gmail-receipts-v3",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crawl-gmail-receipts",
+        "responseMode": "onReceived",
+        "options": {
+          "responseCode": 202,
+          "responseData": "{\"status\":\"accepted\",\"message\":\"Invoice crawl started\"}"
+        }
+      }
+    },
+    {
+      "id": "node-build-query",
+      "name": "Build Search Query",
+      "type": "n8n-nodes-base.code",
+      "position": [320, 300],
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const body = $input.first().json.body || {};\nconst limit = body.limit || 500;\n\n// filename:pdf ensures only emails with actual PDF files are fetched.\n// This prevents marketing/promotional emails (which match keyword filters\n// but only carry HTML or image inline content) from being labeled.\nconst q = [\n  'to:preston@bezantsolutions.com',\n  'has:attachment',\n  '(filename:pdf OR filename:PDF)',\n  '-label:Receipts',\n  'after:2026/01/01',\n  'before:2027/01/01',\n  '(invoice OR \"order confirmation\" OR \"payment confirmation\" OR \"order receipt\" OR receipt OR \"your invoice\")',\n].join(' ');\n\nreturn [{ json: { query: q, limit } }];"
+      }
+    },
+    {
+      "id": "node-search-gmail",
+      "name": "Search Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "position": [560, 300],
+      "typeVersion": 2.1,
+      "credentials": {
+        "gmailOAuth2": { "id": "cZIfyQPNke8rIHal", "name": "Gmail account" }
+      },
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": "={{ $json.limit }}",
+        "filters": { "q": "={{ $json.query }}" },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-fetch-message",
+      "name": "Fetch Full Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [800, 300],
+      "typeVersion": 4.2,
+      "credentials": {
+        "gmailOAuth2": { "id": "cZIfyQPNke8rIHal", "name": "Gmail account" }
+      },
+      "parameters": {
+        "method": "GET",
+        "url": "=https://gmail.googleapis.com/gmail/v1/users/me/messages/{{ $json.id }}?format=full",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-extract-att-ids",
+      "name": "Extract Attachment IDs",
+      "type": "n8n-nodes-base.code",
+      "position": [1040, 300],
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const outputItems = [];\n\nfunction walkParts(parts, messageId, subject, from) {\n  for (const part of (parts || [])) {\n    const mime = (part.mimeType || '').toLowerCase();\n    const body = part.body || {};\n    const attachmentId = body.attachmentId || '';\n    const filename = part.filename || '';\n\n    if (attachmentId && filename) {\n      const isReceiptFile = (\n        mime.includes('pdf') ||\n        mime.startsWith('image/') ||\n        mime.includes('jpeg') ||\n        mime.includes('png') ||\n        mime.includes('tiff')\n      );\n      if (isReceiptFile) {\n        outputItems.push({\n          json: { messageId, attachmentId, fileName: filename, mimeType: mime, subject, from }\n        });\n      }\n    }\n\n    if (part.parts && part.parts.length > 0) {\n      walkParts(part.parts, messageId, subject, from);\n    }\n  }\n}\n\nfor (const item of $input.all()) {\n  const j = item.json;\n  const payload = j.payload || {};\n  const headers = payload.headers || [];\n  let subject = '';\n  let from = '';\n  for (const h of headers) {\n    if (h.name === 'Subject') subject = h.value;\n    if (h.name === 'From')    from    = h.value;\n  }\n  walkParts(payload.parts, j.id, subject, from);\n}\n\nif (outputItems.length === 0) {\n  return [{ json: { skip: true, message: 'No PDF/image attachments found' } }];\n}\nreturn outputItems;"
+      }
+    },
+    {
+      "id": "node-has-att",
+      "name": "Has Attachment?",
+      "type": "n8n-nodes-base.if",
+      "position": [1280, 300],
+      "typeVersion": 2,
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "skip-check",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-download-att",
+      "name": "Download Attachment",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1520, 180],
+      "typeVersion": 4.2,
+      "credentials": {
+        "gmailOAuth2": { "id": "cZIfyQPNke8rIHal", "name": "Gmail account" }
+      },
+      "parameters": {
+        "method": "GET",
+        "url": "=https://gmail.googleapis.com/gmail/v1/users/me/messages/{{ $json.messageId }}/attachments/{{ $json.attachmentId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-decode-binary",
+      "name": "Decode to Binary",
+      "type": "n8n-nodes-base.code",
+      "position": [1760, 180],
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const results = [];\nconst allDownloads = $input.all();\nconst allMeta = $('Has Attachment?').all();\n\nfor (let i = 0; i < allDownloads.length; i++) {\n  const rawB64 = (allDownloads[i].json.data || '').replace(/-/g, '+').replace(/_/g, '/');\n  const meta = (allMeta[i] || { json: {} }).json;\n  const fileName = meta.fileName || 'invoice.pdf';\n  const mimeType = meta.mimeType || 'application/pdf';\n\n  results.push({\n    json: {\n      emailId: meta.messageId || '',\n      subject: meta.subject || '',\n      from: meta.from || '',\n      fileName,\n      mimeType\n    },\n    binary: {\n      file: {\n        data: rawB64,\n        mimeType,\n        fileName,\n        fileExtension: fileName.split('.').pop() || 'pdf'\n      }\n    }\n  });\n}\n\nreturn results;"
+      }
+    },
+    {
+      "id": "node-upload-drive",
+      "name": "Upload to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [2000, 180],
+      "typeVersion": 3,
+      "credentials": {
+        "googleDriveOAuth2Api": { "id": "JQNjsgYJuio2qaG6", "name": "Google Drive account" }
+      },
+      "parameters": {
+        "operation": "upload",
+        "inputDataFieldName": "file",
+        "name": "={{ $json.fileName }}",
+        "driveId": { "__rl": true, "mode": "list", "value": "My Drive" },
+        "folderId": { "__rl": true, "value": "1DyQghC5mT-CkRnXYTVixTUMuM_GFWzuU", "mode": "id" },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-apply-label",
+      "name": "Apply Receipts Label",
+      "type": "n8n-nodes-base.gmail",
+      "position": [2240, 180],
+      "typeVersion": 2.1,
+      "credentials": {
+        "gmailOAuth2": { "id": "cZIfyQPNke8rIHal", "name": "Gmail account" }
+      },
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Decode to Binary').item.json.emailId }}",
+        "labelIds": ["Label_3540768834604209583"]
+      }
+    }
+  ],
+  "connections": {
+    "Crawl Trigger":           { "main": [[{ "node": "Build Search Query",     "type": "main", "index": 0 }]] },
+    "Build Search Query":      { "main": [[{ "node": "Search Gmail",           "type": "main", "index": 0 }]] },
+    "Search Gmail":            { "main": [[{ "node": "Fetch Full Message",     "type": "main", "index": 0 }]] },
+    "Fetch Full Message":      { "main": [[{ "node": "Extract Attachment IDs", "type": "main", "index": 0 }]] },
+    "Extract Attachment IDs":  { "main": [[{ "node": "Has Attachment?",        "type": "main", "index": 0 }]] },
+    "Has Attachment?":         { "main": [[{ "node": "Download Attachment",    "type": "main", "index": 0 }], []] },
+    "Download Attachment":     { "main": [[{ "node": "Decode to Binary",       "type": "main", "index": 0 }]] },
+    "Decode to Binary":        { "main": [[{ "node": "Upload to Drive",        "type": "main", "index": 0 }]] },
+    "Upload to Drive":         { "main": [[{ "node": "Apply Receipts Label",   "type": "main", "index": 0 }]] }
+  }
+}

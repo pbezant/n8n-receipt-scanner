@@ -1,0 +1,746 @@
+{
+    "updatedAt": "2026-03-14T02:47:35.454Z",
+    "createdAt": "2026-03-14T02:47:35.454Z",
+    "id": "OyR09DlROGV9UZ2A",
+    "name": "Gmail Inbox Receipt Crawler",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+        {
+            "id": "webhook-001",
+            "name": "Crawl Trigger",
+            "type": "n8n-nodes-base.webhook",
+            "position": [
+                100,
+                300
+            ],
+            "typeVersion": 2,
+            "webhookId": "crawl-gmail-cef88fff",
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "crawl-gmail-receipts",
+                "responseMode": "responseNode",
+                "options": {}
+            }
+        },
+        {
+            "id": "code-build-query-001",
+            "name": "Build Search Query",
+            "type": "n8n-nodes-base.code",
+            "position": [
+                320,
+                300
+            ],
+            "typeVersion": 2,
+            "parameters": {
+                "jsCode": "\nconst body  = $input.first().json.body || {};\nconst period = body.period || 'month';\nconst limit  = body.limit  || 100;\n\n// Explicit date overrides\nlet afterDate  = body.after  ? String(body.after).replace(/-/g, '/')  : null;\nlet beforeDate = body.before ? String(body.before).replace(/-/g, '/') : null;\n\nif (!afterDate) {\n  const now = new Date();\n  switch (period) {\n    case 'day':\n      afterDate = now.toISOString().slice(0, 10).replace(/-/g, '/');\n      break;\n    case 'week': {\n      const d = new Date(now - 7 * 86400000);\n      afterDate = d.toISOString().slice(0, 10).replace(/-/g, '/');\n      break;\n    }\n    case 'month':\n      afterDate = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/01`;\n      break;\n    case 'year':\n    default:\n      afterDate = `${now.getFullYear()}/01/01`;\n  }\n}\n\nconst keywords = '(receipt OR invoice OR \"order confirmation\" OR \"payment confirmation\" OR \"your purchase\" OR \"order placed\" OR \"order receipt\" OR \"payment received\")';\nlet q = `has:attachment ${keywords} -label:Receipts after:${afterDate}`;\nif (beforeDate) q += ` before:${beforeDate}`;\n\nreturn [{ json: { query: q, period, afterDate, beforeDate, limit } }];\n"
+            }
+        },
+        {
+            "id": "gmail-getall-001",
+            "name": "Search Gmail",
+            "type": "n8n-nodes-base.gmail",
+            "position": [
+                560,
+                300
+            ],
+            "typeVersion": 2.1,
+            "credentials": {
+                "gmailOAuth2": {
+                    "id": "cZIfyQPNke8rIHal",
+                    "name": "Gmail account"
+                }
+            },
+            "parameters": {
+                "operation": "getAll",
+                "returnAll": false,
+                "limit": "={{ $json.limit }}",
+                "filters": {
+                    "q": "={{ $json.query }}"
+                },
+                "options": {}
+            }
+        },
+        {
+            "id": "split-batches-001",
+            "name": "For Each Email",
+            "type": "n8n-nodes-base.splitInBatches",
+            "position": [
+                800,
+                300
+            ],
+            "typeVersion": 3,
+            "parameters": {
+                "batchSize": 1,
+                "options": {}
+            }
+        },
+        {
+            "id": "gmail-get-001",
+            "name": "Get Message & Attachments",
+            "type": "n8n-nodes-base.gmail",
+            "position": [
+                1040,
+                300
+            ],
+            "typeVersion": 2.1,
+            "credentials": {
+                "gmailOAuth2": {
+                    "id": "cZIfyQPNke8rIHal",
+                    "name": "Gmail account"
+                }
+            },
+            "parameters": {
+                "operation": "get",
+                "messageId": "={{ $json.id }}",
+                "options": {
+                    "downloadAttachments": true,
+                    "dataPropertyAttachmentsPrefixName": "attachment"
+                }
+            }
+        },
+        {
+            "id": "code-split-att-001",
+            "name": "Split Attachments",
+            "type": "n8n-nodes-base.code",
+            "position": [
+                1280,
+                300
+            ],
+            "typeVersion": 2,
+            "parameters": {
+                "jsCode": "\nconst outputItems = [];\n\nfor (const item of $input.all()) {\n  const binary = item.binary || {};\n  const { id, subject = '(no subject)', date, from } = item.json || {};\n\n  for (const [key, bin] of Object.entries(binary)) {\n    const mime = (bin.mimeType || '').toLowerCase();\n    const isReceiptAttachment =\n      mime.includes('pdf') ||\n      mime.startsWith('image/') ||\n      mime.includes('jpeg') ||\n      mime.includes('png');\n\n    if (isReceiptAttachment) {\n      outputItems.push({\n        json: {\n          emailId: id,\n          subject,\n          date,\n          from,\n          fileName: bin.fileName || `receipt_${Date.now()}.pdf`,\n          mimeType: mime\n        },\n        binary: { file: bin }   // normalise to single key \"file\"\n      });\n    }\n  }\n}\n\n// Return sentinel so the loop still advances when no valid attachments found\nreturn outputItems.length > 0\n  ? outputItems\n  : [{ json: { skip: true } }];\n"
+            }
+        },
+        {
+            "id": "if-has-att-001",
+            "name": "Has Receipt Attachment?",
+            "type": "n8n-nodes-base.if",
+            "position": [
+                1520,
+                300
+            ],
+            "typeVersion": 2,
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": false,
+                        "leftValue": "",
+                        "typeValidation": "loose"
+                    },
+                    "conditions": [
+                        {
+                            "id": "skip-check",
+                            "leftValue": "={{ $json.skip }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "notEquals"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            }
+        },
+        {
+            "id": "drive-upload-001",
+            "name": "Upload to Drive",
+            "type": "n8n-nodes-base.googleDrive",
+            "position": [
+                1760,
+                200
+            ],
+            "typeVersion": 3,
+            "credentials": {
+                "googleDriveOAuth2Api": {
+                    "id": "JQNjsgYJuio2qaG6",
+                    "name": "Google Drive account"
+                }
+            },
+            "parameters": {
+                "operation": "upload",
+                "inputDataFieldName": "file",
+                "name": "={{ $json.fileName }}",
+                "driveId": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "My Drive"
+                },
+                "folderId": {
+                    "__rl": true,
+                    "value": "1DyQghC5mT-CkRnXYTVixTUMuM_GFWzuU",
+                    "mode": "id"
+                },
+                "options": {}
+            }
+        },
+        {
+            "id": "gmail-label-001",
+            "name": "Apply Receipts Label",
+            "type": "n8n-nodes-base.gmail",
+            "position": [
+                2000,
+                200
+            ],
+            "typeVersion": 2.1,
+            "credentials": {
+                "gmailOAuth2": {
+                    "id": "cZIfyQPNke8rIHal",
+                    "name": "Gmail account"
+                }
+            },
+            "parameters": {
+                "operation": "addLabels",
+                "messageId": "={{ $json.emailId }}",
+                "labelIds": [
+                    "Label_3540768834604209583"
+                ]
+            }
+        },
+        {
+            "id": "respond-001",
+            "name": "Respond",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "position": [
+                1040,
+                500
+            ],
+            "typeVersion": 1.1,
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={ \"status\": \"done\", \"message\": \"Receipt crawl complete\" }"
+            }
+        }
+    ],
+    "connections": {
+        "Crawl Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Build Search Query",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build Search Query": {
+            "main": [
+                [
+                    {
+                        "node": "Search Gmail",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Search Gmail": {
+            "main": [
+                [
+                    {
+                        "node": "For Each Email",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "For Each Email": {
+            "main": [
+                [
+                    {
+                        "node": "Get Message & Attachments",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Respond",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Message & Attachments": {
+            "main": [
+                [
+                    {
+                        "node": "Split Attachments",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Split Attachments": {
+            "main": [
+                [
+                    {
+                        "node": "Has Receipt Attachment?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Has Receipt Attachment?": {
+            "main": [
+                [
+                    {
+                        "node": "Upload to Drive",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "For Each Email",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Upload to Drive": {
+            "main": [
+                [
+                    {
+                        "node": "Apply Receipts Label",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Apply Receipts Label": {
+            "main": [
+                [
+                    {
+                        "node": "For Each Email",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1",
+        "callerPolicy": "workflowsFromSameOwner",
+        "availableInMCP": false
+    },
+    "staticData": null,
+    "meta": null,
+    "pinData": null,
+    "versionId": "ac366498-c9c2-4aa3-bff7-775e52536f0b",
+    "activeVersionId": "ac366498-c9c2-4aa3-bff7-775e52536f0b",
+    "versionCounter": 3,
+    "triggerCount": 1,
+    "shared": [
+        {
+            "updatedAt": "2026-03-14T02:47:35.457Z",
+            "createdAt": "2026-03-14T02:47:35.457Z",
+            "role": "workflow:owner",
+            "workflowId": "OyR09DlROGV9UZ2A",
+            "projectId": "xhlErYwena4WYmxn",
+            "project": {
+                "updatedAt": "2026-01-27T23:38:38.619Z",
+                "createdAt": "2026-01-27T23:37:14.852Z",
+                "id": "xhlErYwena4WYmxn",
+                "name": "Preston Bezant <bezantster@gmail.com>",
+                "type": "personal",
+                "icon": null,
+                "description": null,
+                "creatorId": "7765ab1f-d3d0-407d-95ae-b8995c59eefb",
+                "projectRelations": [
+                    {
+                        "updatedAt": "2026-01-27T23:37:14.852Z",
+                        "createdAt": "2026-01-27T23:37:14.852Z",
+                        "userId": "7765ab1f-d3d0-407d-95ae-b8995c59eefb",
+                        "projectId": "xhlErYwena4WYmxn",
+                        "user": {
+                            "updatedAt": "2026-03-13T04:27:37.000Z",
+                            "createdAt": "2026-01-27T23:37:13.861Z",
+                            "id": "7765ab1f-d3d0-407d-95ae-b8995c59eefb",
+                            "email": "bezantster@gmail.com",
+                            "firstName": "Preston",
+                            "lastName": "Bezant",
+                            "personalizationAnswers": {
+                                "version": "v4",
+                                "personalization_survey_submitted_at": "2026-01-27T23:39:05.056Z",
+                                "personalization_survey_n8n_version": "2.4.6",
+                                "companyType": "personal",
+                                "reportedSource": "friend"
+                            },
+                            "settings": {
+                                "userActivated": true,
+                                "easyAIWorkflowOnboarded": true,
+                                "firstSuccessfulWorkflowId": "ysfzbxz6kcqixsHbSqNEv",
+                                "userActivatedAt": 1769580048050,
+                                "npsSurvey": {
+                                    "responded": true,
+                                    "lastShownAt": 1770095097531
+                                }
+                            },
+                            "disabled": false,
+                            "mfaEnabled": false,
+                            "lastActiveAt": "2026-03-12",
+                            "isPending": false
+                        }
+                    }
+                ]
+            }
+        }
+    ],
+    "tags": [],
+    "activeVersion": {
+        "updatedAt": "2026-03-14T02:47:35.467Z",
+        "createdAt": "2026-03-14T02:47:35.467Z",
+        "versionId": "ac366498-c9c2-4aa3-bff7-775e52536f0b",
+        "workflowId": "OyR09DlROGV9UZ2A",
+        "nodes": [
+            {
+                "id": "webhook-001",
+                "name": "Crawl Trigger",
+                "type": "n8n-nodes-base.webhook",
+                "position": [
+                    100,
+                    300
+                ],
+                "typeVersion": 2,
+                "webhookId": "crawl-gmail-cef88fff",
+                "parameters": {
+                    "httpMethod": "POST",
+                    "path": "crawl-gmail-receipts",
+                    "responseMode": "responseNode",
+                    "options": {}
+                }
+            },
+            {
+                "id": "code-build-query-001",
+                "name": "Build Search Query",
+                "type": "n8n-nodes-base.code",
+                "position": [
+                    320,
+                    300
+                ],
+                "typeVersion": 2,
+                "parameters": {
+                    "jsCode": "\nconst body  = $input.first().json.body || {};\nconst period = body.period || 'month';\nconst limit  = body.limit  || 100;\n\n// Explicit date overrides\nlet afterDate  = body.after  ? String(body.after).replace(/-/g, '/')  : null;\nlet beforeDate = body.before ? String(body.before).replace(/-/g, '/') : null;\n\nif (!afterDate) {\n  const now = new Date();\n  switch (period) {\n    case 'day':\n      afterDate = now.toISOString().slice(0, 10).replace(/-/g, '/');\n      break;\n    case 'week': {\n      const d = new Date(now - 7 * 86400000);\n      afterDate = d.toISOString().slice(0, 10).replace(/-/g, '/');\n      break;\n    }\n    case 'month':\n      afterDate = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/01`;\n      break;\n    case 'year':\n    default:\n      afterDate = `${now.getFullYear()}/01/01`;\n  }\n}\n\nconst keywords = '(receipt OR invoice OR \"order confirmation\" OR \"payment confirmation\" OR \"your purchase\" OR \"order placed\" OR \"order receipt\" OR \"payment received\")';\nlet q = `has:attachment ${keywords} -label:Receipts after:${afterDate}`;\nif (beforeDate) q += ` before:${beforeDate}`;\n\nreturn [{ json: { query: q, period, afterDate, beforeDate, limit } }];\n"
+                }
+            },
+            {
+                "id": "gmail-getall-001",
+                "name": "Search Gmail",
+                "type": "n8n-nodes-base.gmail",
+                "position": [
+                    560,
+                    300
+                ],
+                "typeVersion": 2.1,
+                "credentials": {
+                    "gmailOAuth2": {
+                        "id": "cZIfyQPNke8rIHal",
+                        "name": "Gmail account"
+                    }
+                },
+                "parameters": {
+                    "operation": "getAll",
+                    "returnAll": false,
+                    "limit": "={{ $json.limit }}",
+                    "filters": {
+                        "q": "={{ $json.query }}"
+                    },
+                    "options": {}
+                }
+            },
+            {
+                "id": "split-batches-001",
+                "name": "For Each Email",
+                "type": "n8n-nodes-base.splitInBatches",
+                "position": [
+                    800,
+                    300
+                ],
+                "typeVersion": 3,
+                "parameters": {
+                    "batchSize": 1,
+                    "options": {}
+                }
+            },
+            {
+                "id": "gmail-get-001",
+                "name": "Get Message & Attachments",
+                "type": "n8n-nodes-base.gmail",
+                "position": [
+                    1040,
+                    300
+                ],
+                "typeVersion": 2.1,
+                "credentials": {
+                    "gmailOAuth2": {
+                        "id": "cZIfyQPNke8rIHal",
+                        "name": "Gmail account"
+                    }
+                },
+                "parameters": {
+                    "operation": "get",
+                    "messageId": "={{ $json.id }}",
+                    "options": {
+                        "downloadAttachments": true,
+                        "dataPropertyAttachmentsPrefixName": "attachment"
+                    }
+                }
+            },
+            {
+                "id": "code-split-att-001",
+                "name": "Split Attachments",
+                "type": "n8n-nodes-base.code",
+                "position": [
+                    1280,
+                    300
+                ],
+                "typeVersion": 2,
+                "parameters": {
+                    "jsCode": "\nconst outputItems = [];\n\nfor (const item of $input.all()) {\n  const binary = item.binary || {};\n  const { id, subject = '(no subject)', date, from } = item.json || {};\n\n  for (const [key, bin] of Object.entries(binary)) {\n    const mime = (bin.mimeType || '').toLowerCase();\n    const isReceiptAttachment =\n      mime.includes('pdf') ||\n      mime.startsWith('image/') ||\n      mime.includes('jpeg') ||\n      mime.includes('png');\n\n    if (isReceiptAttachment) {\n      outputItems.push({\n        json: {\n          emailId: id,\n          subject,\n          date,\n          from,\n          fileName: bin.fileName || `receipt_${Date.now()}.pdf`,\n          mimeType: mime\n        },\n        binary: { file: bin }   // normalise to single key \"file\"\n      });\n    }\n  }\n}\n\n// Return sentinel so the loop still advances when no valid attachments found\nreturn outputItems.length > 0\n  ? outputItems\n  : [{ json: { skip: true } }];\n"
+                }
+            },
+            {
+                "id": "if-has-att-001",
+                "name": "Has Receipt Attachment?",
+                "type": "n8n-nodes-base.if",
+                "position": [
+                    1520,
+                    300
+                ],
+                "typeVersion": 2,
+                "parameters": {
+                    "conditions": {
+                        "options": {
+                            "caseSensitive": false,
+                            "leftValue": "",
+                            "typeValidation": "loose"
+                        },
+                        "conditions": [
+                            {
+                                "id": "skip-check",
+                                "leftValue": "={{ $json.skip }}",
+                                "rightValue": true,
+                                "operator": {
+                                    "type": "boolean",
+                                    "operation": "notEquals"
+                                }
+                            }
+                        ],
+                        "combinator": "and"
+                    },
+                    "options": {}
+                }
+            },
+            {
+                "id": "drive-upload-001",
+                "name": "Upload to Drive",
+                "type": "n8n-nodes-base.googleDrive",
+                "position": [
+                    1760,
+                    200
+                ],
+                "typeVersion": 3,
+                "credentials": {
+                    "googleDriveOAuth2Api": {
+                        "id": "JQNjsgYJuio2qaG6",
+                        "name": "Google Drive account"
+                    }
+                },
+                "parameters": {
+                    "operation": "upload",
+                    "inputDataFieldName": "file",
+                    "name": "={{ $json.fileName }}",
+                    "driveId": {
+                        "__rl": true,
+                        "mode": "list",
+                        "value": "My Drive"
+                    },
+                    "folderId": {
+                        "__rl": true,
+                        "value": "1DyQghC5mT-CkRnXYTVixTUMuM_GFWzuU",
+                        "mode": "id"
+                    },
+                    "options": {}
+                }
+            },
+            {
+                "id": "gmail-label-001",
+                "name": "Apply Receipts Label",
+                "type": "n8n-nodes-base.gmail",
+                "position": [
+                    2000,
+                    200
+                ],
+                "typeVersion": 2.1,
+                "credentials": {
+                    "gmailOAuth2": {
+                        "id": "cZIfyQPNke8rIHal",
+                        "name": "Gmail account"
+                    }
+                },
+                "parameters": {
+                    "operation": "addLabels",
+                    "messageId": "={{ $json.emailId }}",
+                    "labelIds": [
+                        "Label_3540768834604209583"
+                    ]
+                }
+            },
+            {
+                "id": "respond-001",
+                "name": "Respond",
+                "type": "n8n-nodes-base.respondToWebhook",
+                "position": [
+                    1040,
+                    500
+                ],
+                "typeVersion": 1.1,
+                "parameters": {
+                    "respondWith": "json",
+                    "responseBody": "={ \"status\": \"done\", \"message\": \"Receipt crawl complete\" }"
+                }
+            }
+        ],
+        "connections": {
+            "Crawl Trigger": {
+                "main": [
+                    [
+                        {
+                            "node": "Build Search Query",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Build Search Query": {
+                "main": [
+                    [
+                        {
+                            "node": "Search Gmail",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Search Gmail": {
+                "main": [
+                    [
+                        {
+                            "node": "For Each Email",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "For Each Email": {
+                "main": [
+                    [
+                        {
+                            "node": "Get Message & Attachments",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ],
+                    [
+                        {
+                            "node": "Respond",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Get Message & Attachments": {
+                "main": [
+                    [
+                        {
+                            "node": "Split Attachments",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Split Attachments": {
+                "main": [
+                    [
+                        {
+                            "node": "Has Receipt Attachment?",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Has Receipt Attachment?": {
+                "main": [
+                    [
+                        {
+                            "node": "Upload to Drive",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ],
+                    [
+                        {
+                            "node": "For Each Email",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Upload to Drive": {
+                "main": [
+                    [
+                        {
+                            "node": "Apply Receipts Label",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Apply Receipts Label": {
+                "main": [
+                    [
+                        {
+                            "node": "For Each Email",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            }
+        },
+        "authors": "Preston Bezant",
+        "name": null,
+        "description": null,
+        "autosaved": false,
+        "workflowPublishHistory": [
+            {
+                "createdAt": "2026-03-14T02:47:55.738Z",
+                "id": 109,
+                "workflowId": "OyR09DlROGV9UZ2A",
+                "versionId": "ac366498-c9c2-4aa3-bff7-775e52536f0b",
+                "event": "activated",
+                "userId": "7765ab1f-d3d0-407d-95ae-b8995c59eefb"
+            }
+        ]
+    }
+}
